@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Upload as UploadIcon, File, Check, ChevronLeft, ChevronRight, AlertCircle, FileText } from "lucide-react";
-import { useStore } from "@/store";
+import { Upload as UploadIcon, File, Check, ChevronLeft, ChevronRight, AlertCircle, FileText, Info, ShieldAlert } from "lucide-react";
+import { useStore, fileToDataUrl, users } from "@/store";
 import { cn } from "@/lib/utils";
 import StatusBadge from "@/components/StatusBadge";
 import type { ProjectItem, UploadedFile } from "@/types";
@@ -26,33 +26,41 @@ export default function Upload() {
   const { id } = useParams<{ id: string }>();
   const project = useStore((s) => s.projects.find((p) => p.id === id));
   const addItemFile = useStore((s) => s.addItemFile);
+  const addActivity = useStore((s) => s.addActivity);
+  const currentViewRole = useStore((s) => s.currentViewRole);
+  const currentUserId = useStore((s) => s.currentUserId);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isNotAssignedTarget = currentViewRole === 'target' && project && !project.assignedTo.includes(currentUserId);
   const allItems = project?.sections.flatMap((s) => s.items) ?? [];
   const currentItem = allItems[currentIdx];
 
   const handleFiles = useCallback(
-    (files: FileList | null) => {
-      if (!files || !currentItem || !id) return;
-      Array.from(files).forEach((f, i) => {
+    async (files: FileList | null) => {
+      if (!files || !currentItem || !id || !project) return;
+      const arr = Array.from(files);
+      for (let i = 0; i < arr.length; i++) {
+        const f = arr[i];
+        const dataUrl = await fileToDataUrl(f);
         const uf: UploadedFile = {
           id: `file-${Date.now()}-${i}`,
           name: f.name,
           size: f.size,
           type: f.type,
-          uploadedBy: "u2",
+          uploadedBy: currentUserId,
           uploadedAt: new Date().toISOString(),
           reviews: [],
           allowDownload: true,
           allowPrint: true,
           hasWatermark: true,
         };
-        addItemFile(id, currentItem.id, uf);
-      });
+        addItemFile(id, currentItem.id, uf, dataUrl);
+        addActivity({ id: 'a-'+Date.now()+i, projectId: id, projectName: project.name, action: '文件上传', detail: `上传了「${f.name}」`, userName: users.find(u => u.id === useStore.getState().currentUserId)?.name || '当前用户', timestamp: new Date().toISOString() });
+      }
     },
-    [currentItem, id, addItemFile]
+    [currentItem, id, addItemFile, addActivity, project, currentUserId]
   );
 
   const onDrop = useCallback(
@@ -66,12 +74,35 @@ export default function Upload() {
 
   if (!project) return <div className="flex h-full items-center justify-center text-navy-400">项目不存在</div>;
 
+  if (isNotAssignedTarget) {
+    return (
+      <div className="space-y-6 font-sans">
+        <div className="bg-gradient-to-r from-navy-900 to-navy-800 rounded-xl border border-navy-700/50 p-6">
+          <Link to={`/project/${id}`} className="text-sm text-navy-400 hover:text-gold-400 transition-colors">← 返回项目</Link>
+          <h1 className="mt-2 font-display text-2xl font-bold text-white">资料上传</h1>
+        </div>
+        <div className="rounded-xl border border-red-700/50 bg-red-900/20 p-8 flex flex-col items-center text-center">
+          <ShieldAlert className="h-16 w-16 text-red-400 mb-4" />
+          <h2 className="font-display text-xl font-semibold text-red-300 mb-2">您未被分配到该项目</h2>
+          <p className="text-sm text-navy-400">请联系项目经理分配权限后再进行操作。</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 font-sans">
       <div className="bg-gradient-to-r from-navy-900 to-navy-800 rounded-xl border border-navy-700/50 p-6">
         <Link to={`/project/${id}`} className="text-sm text-navy-400 hover:text-gold-400 transition-colors">← 返回项目</Link>
         <h1 className="mt-2 font-display text-2xl font-bold text-white">资料上传</h1>
       </div>
+
+      {currentViewRole === 'target' && (
+        <div className="flex items-center gap-3 rounded-xl border border-blue-700/50 bg-blue-900/20 px-5 py-3">
+          <Info className="h-5 w-5 text-blue-400 shrink-0" />
+          <p className="text-sm text-blue-300">当前以被调查方视角操作，仅可上传和查看已分配的材料</p>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-navy-700/50 bg-navy-900/80 p-4">
         <div className="flex gap-1">

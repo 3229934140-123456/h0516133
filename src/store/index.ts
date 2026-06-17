@@ -2,281 +2,243 @@ import { create } from "zustand";
 import {
   Project, Template, Question, ActivityLog, User,
   ProjectItem, UploadedFile, Review, ProjectSection,
-  WatermarkConfig, SecurityRule, Reply,
+  WatermarkConfig, SecurityRule, Reply, ProjectType,
 } from "@/types";
 import { defaultTemplates } from "@/data/templates";
 
-const currentUser: User = {
-  id: "u1",
-  name: "张明远",
-  email: "zhangmy@investcap.com",
-  role: "investor",
-};
+const STORAGE_KEY = "duediligence-store-v1";
 
-const targetUser: User = {
-  id: "u2",
-  name: "李思涵",
-  email: "lisihan@targetco.com",
-  role: "target",
-};
-
-function createSampleProject1(): Project {
-  const tpl = defaultTemplates[0];
-  const sections: ProjectSection[] = tpl.sections.map((s, si) => ({
-    id: s.id,
-    name: s.name,
-    order: s.order,
-    items: s.items.map((item, ii) => {
-      const statuses: ProjectItem["status"][] = ["approved", "uploaded", "in_review", "questioned", "supplement_needed", "pending"];
-      const statusIndex = (si * 7 + ii) % 6;
-      const status = statuses[statusIndex];
-      const files: UploadedFile[] = [];
-      if (status !== "pending") {
-        const reviews: Review[] = [];
-        if (status === "approved") {
-          reviews.push({
-            id: `rev-${item.id}-1`,
-            reviewerId: "u1",
-            reviewerName: "张明远",
-            result: "approved",
-            comment: "材料完整，审核通过",
-            createdAt: "2025-06-10T14:30:00Z",
-          });
-        } else if (status === "questioned") {
-          reviews.push({
-            id: `rev-${item.id}-1`,
-            reviewerId: "u1",
-            reviewerName: "张明远",
-            result: "questioned",
-            comment: "文件内容不完整，请补充最新版本",
-            createdAt: "2025-06-11T09:15:00Z",
-          });
-        } else if (status === "supplement_needed") {
-          reviews.push({
-            id: `rev-${item.id}-1`,
-            reviewerId: "u1",
-            reviewerName: "张明远",
-            result: "supplement_needed",
-            comment: "缺少关键页，请补充上传",
-            createdAt: "2025-06-11T10:00:00Z",
-          });
-        } else if (status === "in_review") {
-          // no reviews yet
-        }
-        files.push({
-          id: `file-${item.id}-1`,
-          name: `${item.name}.pdf`,
-          size: 1024 * (100 + ii * 50),
-          type: "application/pdf",
-          uploadedBy: "u2",
-          uploadedAt: "2025-06-09T16:00:00Z",
-          reviews,
-          allowDownload: true,
-          allowPrint: true,
-          hasWatermark: true,
-        });
-      }
-      return {
-        id: item.id,
-        name: item.name,
-        description: item.description,
-        required: item.required,
-        acceptedFormats: item.acceptedFormats,
-        status,
-        files,
-      };
-    }),
-  }));
-
-  return {
-    id: "proj-1",
-    name: "华创科技股权投资尽调",
-    type: "equity",
-    status: "active",
-    templateId: tpl.id,
-    sections,
-    assignedTo: ["u2"],
-    createdBy: "u1",
-    createdAt: "2025-06-01T08:00:00Z",
-    updatedAt: "2025-06-15T17:30:00Z",
-    watermarkConfig: {
-      enabled: true,
-      textTemplate: "{name} - {email} - {date}",
-      fontSize: 14,
-      opacity: 0.15,
-      rotation: -30,
-    },
-    securityRules: [
-      { targetId: "proj-1", targetType: "project", allowDownload: false, allowPrint: false, allowShare: false },
-    ],
-  };
-}
-
-function createSampleProject2(): Project {
-  const tpl = defaultTemplates[1];
-  const sections: ProjectSection[] = tpl.sections.map((s, si) => ({
-    id: s.id,
-    name: s.name,
-    order: s.order,
-    items: s.items.slice(0, 5).map((item, ii) => {
-      const statuses: ProjectItem["status"][] = ["approved", "uploaded", "pending", "pending", "pending"];
-      const status = statuses[ii % 5];
-      const files: UploadedFile[] = [];
-      if (status !== "pending") {
-        const reviews: Review[] = [];
-        if (status === "approved") {
-          reviews.push({
-            id: `rev-${item.id}-1`,
-            reviewerId: "u1",
-            reviewerName: "张明远",
-            result: "approved",
-            comment: "资料齐全",
-            createdAt: "2025-06-12T11:00:00Z",
-          });
-        }
-        files.push({
-          id: `file-${item.id}-1`,
-          name: `${item.name}.pdf`,
-          size: 1024 * (200 + ii * 80),
-          type: "application/pdf",
-          uploadedBy: "u2",
-          uploadedAt: "2025-06-10T14:00:00Z",
-          reviews,
-          allowDownload: true,
-          allowPrint: false,
-          hasWatermark: true,
-        });
-      }
-      return {
-        id: item.id,
-        name: item.name,
-        description: item.description,
-        required: item.required,
-        acceptedFormats: item.acceptedFormats,
-        status,
-        files,
-      };
-    }),
-  }));
-
-  return {
-    id: "proj-2",
-    name: "盛达集团并购尽调",
-    type: "merger",
-    status: "active",
-    templateId: tpl.id,
-    sections,
-    assignedTo: ["u2"],
-    createdBy: "u1",
-    createdAt: "2025-06-05T09:00:00Z",
-    updatedAt: "2025-06-14T15:00:00Z",
-    watermarkConfig: {
-      enabled: true,
-      textTemplate: "机密 - {name} - {date}",
-      fontSize: 16,
-      opacity: 0.2,
-      rotation: -25,
-    },
-    securityRules: [
-      { targetId: "proj-2", targetType: "project", allowDownload: false, allowPrint: false, allowShare: false },
-    ],
-  };
-}
-
-const sampleQuestions: Question[] = [
-  {
-    id: "q1",
-    projectId: "proj-1",
-    itemId: "eq-2-3",
-    itemName: "银行对账单",
-    fileId: "file-eq-2-3-1",
-    title: "银行对账单不完整",
-    content: "提供的中国银行对账单仅包含6个月数据，请补充完整12个月的对账单。",
-    createdBy: "u1",
-    createdByName: "张明远",
-    status: "replied",
-    replies: [
-      {
-        id: "r1",
-        content: "已补充完整年度对账单，请查看新上传的文件。",
-        createdBy: "u2",
-        createdByName: "李思涵",
-        attachments: [],
-        createdAt: "2025-06-14T10:30:00Z",
-      },
-    ],
-    createdAt: "2025-06-13T09:00:00Z",
-  },
-  {
-    id: "q2",
-    projectId: "proj-1",
-    itemId: "eq-3-1",
-    itemName: "诉讼仲裁情况",
-    title: "诉讼案件详情缺失",
-    content: "诉讼清单中仅列明了案件名称，请补充各案件的起诉状、答辩状及最新进展。",
-    createdBy: "u1",
-    createdByName: "张明远",
-    status: "open",
-    replies: [],
-    createdAt: "2025-06-14T15:00:00Z",
-  },
-  {
-    id: "q3",
-    projectId: "proj-1",
-    itemId: "eq-4-2",
-    itemName: "主要客户清单",
-    title: "客户集中度风险",
-    content: "前两大客户合计占比超过60%，请说明客户集中度风险及应对措施。",
-    createdBy: "u1",
-    createdByName: "张明远",
-    status: "closed",
-    replies: [
-      {
-        id: "r2",
-        content: "我们正在积极拓展新客户，已与3家潜在客户进入商务洽谈阶段，详见附件的客户拓展计划。",
-        createdBy: "u2",
-        createdByName: "李思涵",
-        attachments: [],
-        createdAt: "2025-06-12T11:00:00Z",
-      },
-      {
-        id: "r3",
-        content: "收到，请持续关注新客户拓展进展。",
-        createdBy: "u1",
-        createdByName: "张明远",
-        attachments: [],
-        createdAt: "2025-06-12T14:00:00Z",
-      },
-    ],
-    createdAt: "2025-06-11T16:00:00Z",
-  },
+export const users: User[] = [
+  { id: "u1", name: "张明远", email: "zhangmy@investcap.com", role: "investor" },
+  { id: "u2", name: "李思涵", email: "lisihan@targetco.com", role: "target" },
+  { id: "u3", name: "王建国", email: "wangjg@companyb.com", role: "target" },
+  { id: "u4", name: "刘薇", email: "liuwei@investcap.com", role: "investor" },
 ];
 
-const sampleActivities: ActivityLog[] = [
-  { id: "a1", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "审核通过", detail: "审核通过「公司营业执照」", userName: "张明远", timestamp: "2025-06-15T17:30:00Z" },
-  { id: "a2", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "文件上传", detail: "上传了「公司章程」", userName: "李思涵", timestamp: "2025-06-15T15:20:00Z" },
-  { id: "a3", projectId: "proj-2", projectName: "盛达集团并购尽调", action: "发起提问", detail: "对「战略规划文件」发起提问", userName: "张明远", timestamp: "2025-06-14T16:00:00Z" },
-  { id: "a4", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "回复问题", detail: "回复了「银行对账单不完整」的问题", userName: "李思涵", timestamp: "2025-06-14T10:30:00Z" },
-  { id: "a5", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "标记疑问", detail: "对「诉讼仲裁情况」标记有疑问", userName: "张明远", timestamp: "2025-06-14T09:15:00Z" },
-  { id: "a6", projectId: "proj-2", projectName: "盛达集团并购尽调", action: "文件上传", detail: "上传了「管理账明细」", userName: "李思涵", timestamp: "2025-06-13T14:00:00Z" },
-  { id: "a7", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "创建项目", detail: "创建了尽调项目", userName: "张明远", timestamp: "2025-06-01T08:00:00Z" },
-  { id: "a8", projectId: "proj-2", projectName: "盛达集团并购尽调", action: "创建项目", detail: "创建了尽调项目", userName: "张明远", timestamp: "2025-06-05T09:00:00Z" },
-];
+function makeInitialProjects(): Project[] {
+  const projects: Project[] = [];
+  const tpls = defaultTemplates;
 
-interface AppState {
-  currentUser: User;
-  targetUser: User;
+  for (let pi = 0; pi < 2; pi++) {
+    const tpl = tpls[pi];
+    const sections: ProjectSection[] = tpl.sections.map((s, si) => ({
+      id: s.id,
+      name: s.name,
+      order: s.order,
+      items: s.items.map((item, ii) => {
+        const statuses: ProjectItem["status"][] = ["approved", "uploaded", "in_review", "questioned", "supplement_needed", "pending"];
+        const statusIndex = (si * 7 + ii) % 6;
+        const status = statuses[statusIndex];
+        const files: UploadedFile[] = [];
+        if (status !== "pending") {
+          const reviews: Review[] = [];
+          if (status === "approved") {
+            reviews.push({
+              id: `rev-${item.id}-${pi}-1`,
+              reviewerId: "u1",
+              reviewerName: "张明远",
+              result: "approved",
+              comment: "材料完整，审核通过",
+              createdAt: `2025-06-10T14:3${ii}:00Z`,
+            });
+          } else if (status === "questioned") {
+            reviews.push({
+              id: `rev-${item.id}-${pi}-1`,
+              reviewerId: "u1",
+              reviewerName: "张明远",
+              result: "questioned",
+              comment: "文件内容不完整，请补充最新版本",
+              createdAt: `2025-06-11T09:1${ii}:00Z`,
+            });
+          } else if (status === "supplement_needed") {
+            reviews.push({
+              id: `rev-${item.id}-${pi}-1`,
+              reviewerId: "u1",
+              reviewerName: "张明远",
+              result: "supplement_needed",
+              comment: "缺少关键页，请补充上传",
+              createdAt: `2025-06-11T10:0${ii}:00Z`,
+            });
+          }
+          files.push({
+            id: `file-${item.id}-${pi}-1`,
+            name: `${item.name}.pdf`,
+            size: 1024 * (100 + ii * 50),
+            type: "application/pdf",
+            uploadedBy: "u2",
+            uploadedAt: `2025-06-09T16:0${ii}:00Z`,
+            reviews,
+            allowDownload: true,
+            allowPrint: true,
+            hasWatermark: true,
+          });
+        }
+        return {
+          id: `${item.id}-p${pi}`,
+          name: item.name,
+          description: item.description,
+          required: item.required,
+          acceptedFormats: item.acceptedFormats,
+          status,
+          files,
+        };
+      }),
+    }));
+    projects.push({
+      id: `proj-${pi + 1}`,
+      name: pi === 0 ? "华创科技股权投资尽调" : "盛达集团并购尽调",
+      type: pi === 0 ? "equity" : "merger",
+      status: "active",
+      templateId: tpl.id,
+      sections,
+      assignedTo: ["u2"],
+      createdBy: "u1",
+      createdAt: `2025-06-0${pi + 1}T08:00:00Z`,
+      updatedAt: `2025-06-1${5 - pi}T17:30:00Z`,
+      watermarkConfig: {
+        enabled: true,
+        textTemplate: "{name} - {email} - {date}",
+        fontSize: 14,
+        opacity: 0.15,
+        rotation: -30,
+      },
+      securityRules: [],
+    });
+  }
+  return projects;
+}
+
+function makeInitialQuestions(): Question[] {
+  return [
+    {
+      id: "q1",
+      projectId: "proj-1",
+      itemId: `eq-2-3-p0`,
+      itemName: "银行对账单",
+      fileId: `file-eq-2-3-p0-1`,
+      title: "银行对账单不完整",
+      content: "提供的中国银行对账单仅包含6个月数据，请补充完整12个月的对账单。",
+      createdBy: "u1",
+      createdByName: "张明远",
+      status: "replied",
+      replies: [
+        {
+          id: "r1",
+          content: "已补充完整年度对账单，请查看新上传的文件。",
+          createdBy: "u2",
+          createdByName: "李思涵",
+          attachments: [],
+          createdAt: "2025-06-14T10:30:00Z",
+        },
+      ],
+      createdAt: "2025-06-13T09:00:00Z",
+    },
+    {
+      id: "q2",
+      projectId: "proj-1",
+      itemId: `eq-3-1-p0`,
+      itemName: "诉讼仲裁情况",
+      title: "诉讼案件详情缺失",
+      content: "诉讼清单中仅列明了案件名称，请补充各案件的起诉状、答辩状及最新进展。",
+      createdBy: "u1",
+      createdByName: "张明远",
+      status: "open",
+      replies: [],
+      createdAt: "2025-06-14T15:00:00Z",
+    },
+  ];
+}
+
+function makeInitialActivities(): ActivityLog[] {
+  return [
+    { id: "a1", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "审核通过", detail: "审核通过「公司营业执照」", userName: "张明远", timestamp: "2025-06-15T17:30:00Z" },
+    { id: "a2", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "文件上传", detail: "上传了「公司章程」", userName: "李思涵", timestamp: "2025-06-15T15:20:00Z" },
+    { id: "a3", projectId: "proj-2", projectName: "盛达集团并购尽调", action: "发起提问", detail: "对「战略规划文件」发起提问", userName: "张明远", timestamp: "2025-06-14T16:00:00Z" },
+    { id: "a4", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "回复问题", detail: "回复了「银行对账单不完整」的问题", userName: "李思涵", timestamp: "2025-06-14T10:30:00Z" },
+    { id: "a5", projectId: "proj-1", projectName: "华创科技股权投资尽调", action: "标记疑问", detail: "对「诉讼仲裁情况」标记有疑问", userName: "张明远", timestamp: "2025-06-14T09:15:00Z" },
+  ];
+}
+
+interface PersistState {
   projects: Project[];
   templates: Template[];
   questions: Question[];
   activities: ActivityLog[];
+  fileContents: Record<string, string>; // fileId -> base64 data url
   currentViewRole: "investor" | "target";
+  currentUserId: string;
+}
+
+function buildInitialState(): PersistState {
+  return {
+    projects: makeInitialProjects(),
+    templates: [...defaultTemplates],
+    questions: makeInitialQuestions(),
+    activities: makeInitialActivities(),
+    fileContents: {},
+    currentViewRole: "investor",
+    currentUserId: "u1",
+  };
+}
+
+function loadState(): PersistState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as PersistState;
+      if (parsed && parsed.projects && parsed.templates) {
+        return parsed;
+      }
+    }
+  } catch (_) {}
+  return buildInitialState();
+}
+
+function persist(state: AppState) {
+  try {
+    const saveData: PersistState = {
+      projects: state.projects,
+      templates: state.templates,
+      questions: state.questions,
+      activities: state.activities,
+      fileContents: state.fileContents,
+      currentViewRole: state.currentViewRole,
+      currentUserId: state.currentUserId,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
+  } catch (e) {
+    console.warn("存储失败，可能文件内容过大:", e);
+  }
+}
+
+export function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const [meta, b64] = dataUrl.split(",");
+  const mimeMatch = meta.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+  const binary = atob(b64);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+interface AppState extends PersistState {
+  addFileContent: (fileId: string, dataUrl: string) => void;
+  getFileContent: (fileId: string) => string | undefined;
 
   addProject: (project: Project) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
 
-  addItemFile: (projectId: string, itemId: string, file: UploadedFile) => void;
+  addItemFile: (projectId: string, itemId: string, file: UploadedFile, contentDataUrl?: string) => void;
   updateItemStatus: (projectId: string, itemId: string, status: ProjectItem["status"]) => void;
   addReview: (projectId: string, itemId: string, fileId: string, review: Review) => void;
 
@@ -292,150 +254,437 @@ interface AppState {
   updateWatermarkConfig: (projectId: string, config: WatermarkConfig) => void;
   updateSecurityRule: (projectId: string, rule: SecurityRule) => void;
 
+  setFilePermissions: (projectId: string, fileId: string, perms: Partial<Pick<UploadedFile, "allowDownload" | "allowPrint" | "hasWatermark">>) => void;
+
   switchViewRole: (role: "investor" | "target") => void;
+  setCurrentUser: (userId: string) => void;
+
+  canDownloadFile: (projectId: string, fileId: string) => boolean;
+  canPrintFile: (projectId: string, fileId: string) => boolean;
+  getQuestionsForItem: (projectId: string, itemId: string) => Question[];
+  getAssignedProjects: (userId: string) => Project[];
+
+  resetStore: () => void;
 }
 
-export const useStore = create<AppState>((set) => ({
-  currentUser,
-  targetUser,
-  projects: [createSampleProject1(), createSampleProject2()],
-  templates: [...defaultTemplates],
-  questions: [...sampleQuestions],
-  activities: [...sampleActivities],
-  currentViewRole: "investor",
+const initial = loadState();
 
-  addProject: (project) =>
-    set((state) => ({ projects: [...state.projects, project] })),
+export const useStore = create<AppState>((set, get) => {
+  const getInitials = () => buildInitialState();
 
-  updateProject: (id, updates) =>
-    set((state) => ({
-      projects: state.projects.map((p) =>
-        p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p
-      ),
-    })),
+  return {
+    projects: initial.projects,
+    templates: initial.templates,
+    questions: initial.questions,
+    activities: initial.activities,
+    fileContents: initial.fileContents,
+    currentViewRole: initial.currentViewRole,
+    currentUserId: initial.currentUserId,
 
-  deleteProject: (id) =>
-    set((state) => ({
-      projects: state.projects.filter((p) => p.id !== id),
-    })),
+    addFileContent: (fileId, dataUrl) => {
+      set((s) => {
+        const next = { ...s, fileContents: { ...s.fileContents, [fileId]: dataUrl } };
+        persist(next);
+        return next;
+      });
+    },
 
-  addItemFile: (projectId, itemId, file) =>
-    set((state) => ({
-      projects: state.projects.map((p) =>
-        p.id === projectId
-          ? {
-              ...p,
-              sections: p.sections.map((s) => ({
-                ...s,
-                items: s.items.map((item) =>
-                  item.id === itemId
-                    ? { ...item, files: [...item.files, file], status: "uploaded" as const }
-                    : item
-                ),
-              })),
-              updatedAt: new Date().toISOString(),
+    getFileContent: (fileId) => get().fileContents[fileId],
+
+    addProject: (project) => {
+      set((s) => {
+        const next = { ...s, projects: [...s.projects, project] };
+        persist(next);
+        return next;
+      });
+    },
+
+    updateProject: (id, updates) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    deleteProject: (id) => {
+      set((s) => {
+        const next = { ...s, projects: s.projects.filter((p) => p.id !== id) };
+        persist(next);
+        return next;
+      });
+    },
+
+    addItemFile: (projectId, itemId, file, contentDataUrl) => {
+      set((s) => {
+        const nextContents = contentDataUrl
+          ? { ...s.fileContents, [file.id]: contentDataUrl }
+          : s.fileContents;
+        const next = {
+          ...s,
+          fileContents: nextContents,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  sections: p.sections.map((sec) => ({
+                    ...sec,
+                    items: sec.items.map((item) =>
+                      item.id === itemId
+                        ? { ...item, files: [...item.files, file], status: "uploaded" as const }
+                        : item
+                    ),
+                  })),
+                  updatedAt: new Date().toISOString(),
+                }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    updateItemStatus: (projectId, itemId, status) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  sections: p.sections.map((sec) => ({
+                    ...sec,
+                    items: sec.items.map((item) =>
+                      item.id === itemId ? { ...item, status } : item
+                    ),
+                  })),
+                  updatedAt: new Date().toISOString(),
+                }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    addReview: (projectId, itemId, fileId, review) => {
+      set((s) => {
+        const newStatus: ProjectItem["status"] =
+          review.result === "approved" ? "approved" :
+          review.result === "questioned" ? "questioned" : "supplement_needed";
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  sections: p.sections.map((sec) => ({
+                    ...sec,
+                    items: sec.items.map((item) =>
+                      item.id === itemId
+                        ? {
+                            ...item,
+                            status: newStatus,
+                            files: item.files.map((f) =>
+                              f.id === fileId ? { ...f, reviews: [...f.reviews, review] } : f
+                            ),
+                          }
+                        : item
+                    ),
+                  })),
+                  updatedAt: new Date().toISOString(),
+                }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    addQuestion: (question) => {
+      set((s) => {
+        const next = { ...s, questions: [...s.questions, question] };
+        persist(next);
+        return next;
+      });
+    },
+
+    addReply: (questionId, reply) => {
+      set((s) => {
+        const next = {
+          ...s,
+          questions: s.questions.map((q) =>
+            q.id === questionId
+              ? { ...q, replies: [...q.replies, reply], status: "replied" as const }
+              : q
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    updateQuestionStatus: (questionId, status) => {
+      set((s) => {
+        const next = {
+          ...s,
+          questions: s.questions.map((q) =>
+            q.id === questionId ? { ...q, status } : q
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    addActivity: (activity) => {
+      set((s) => {
+        const next = { ...s, activities: [activity, ...s.activities].slice(0, 200) };
+        persist(next);
+        return next;
+      });
+    },
+
+    addTemplate: (template) => {
+      set((s) => {
+        const next = { ...s, templates: [...s.templates, template] };
+        persist(next);
+        return next;
+      });
+    },
+
+    updateTemplate: (id, updates) => {
+      set((s) => {
+        const next = {
+          ...s,
+          templates: s.templates.map((t) =>
+            t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    updateWatermarkConfig: (projectId, config) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId ? { ...p, watermarkConfig: config } : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    updateSecurityRule: (projectId, rule) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  securityRules: [
+                    ...p.securityRules.filter((r) => r.targetId !== rule.targetId),
+                    rule,
+                  ],
+                }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    setFilePermissions: (projectId, fileId, perms) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  sections: p.sections.map((sec) => ({
+                    ...sec,
+                    items: sec.items.map((item) => ({
+                      ...item,
+                      files: item.files.map((f) =>
+                        f.id === fileId ? { ...f, ...perms } : f
+                      ),
+                    })),
+                  })),
+                }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    switchViewRole: (role) => {
+      set((s) => {
+        const userId = role === "investor" ? "u1" : "u2";
+        const next = { ...s, currentViewRole: role, currentUserId: userId };
+        persist(next);
+        return next;
+      });
+    },
+
+    setCurrentUser: (userId) => {
+      const user = users.find((u) => u.id === userId);
+      if (!user) return;
+      set((s) => {
+        const viewRole = user.role === "admin" ? "investor" : user.role as "investor" | "target";
+        const next = { ...s, currentUserId: userId, currentViewRole: viewRole };
+        persist(next);
+        return next;
+      });
+    },
+
+    canDownloadFile: (projectId, fileId) => {
+      const state = get();
+      const project = state.projects.find((p) => p.id === projectId);
+      if (!project) return false;
+      let allowed = true;
+      for (const rule of project.securityRules) {
+        if (rule.targetType === "project") allowed = allowed && rule.allowDownload;
+      }
+      for (const section of project.sections) {
+        for (const rule of project.securityRules) {
+          if (rule.targetType === "section" && rule.targetId === section.id) {
+            allowed = allowed && rule.allowDownload;
+          }
+        }
+        for (const item of section.items) {
+          for (const rule of project.securityRules) {
+            if (rule.targetType === "item" && rule.targetId === item.id) {
+              allowed = allowed && rule.allowDownload;
             }
-          : p
-      ),
-    })),
-
-  updateItemStatus: (projectId, itemId, status) =>
-    set((state) => ({
-      projects: state.projects.map((p) =>
-        p.id === projectId
-          ? {
-              ...p,
-              sections: p.sections.map((s) => ({
-                ...s,
-                items: s.items.map((item) =>
-                  item.id === itemId ? { ...item, status } : item
-                ),
-              })),
-              updatedAt: new Date().toISOString(),
+          }
+          for (const f of item.files) {
+            if (f.id === fileId) {
+              allowed = allowed && f.allowDownload;
             }
-          : p
-      ),
-    })),
+          }
+        }
+      }
+      return allowed;
+    },
 
-  addReview: (projectId, itemId, fileId, review) =>
-    set((state) => ({
-      projects: state.projects.map((p) =>
-        p.id === projectId
-          ? {
-              ...p,
-              sections: p.sections.map((s) => ({
-                ...s,
-                items: s.items.map((item) =>
-                  item.id === itemId
-                    ? {
-                        ...item,
-                        status: review.result === "approved" ? "approved" as const : review.result === "questioned" ? "questioned" as const : "supplement_needed" as const,
-                        files: item.files.map((f) =>
-                          f.id === fileId ? { ...f, reviews: [...f.reviews, review] } : f
-                        ),
-                      }
-                    : item
-                ),
-              })),
-              updatedAt: new Date().toISOString(),
+    canPrintFile: (projectId, fileId) => {
+      const state = get();
+      const project = state.projects.find((p) => p.id === projectId);
+      if (!project) return false;
+      let allowed = true;
+      for (const rule of project.securityRules) {
+        if (rule.targetType === "project") allowed = allowed && rule.allowPrint;
+      }
+      for (const section of project.sections) {
+        for (const rule of project.securityRules) {
+          if (rule.targetType === "section" && rule.targetId === section.id) {
+            allowed = allowed && rule.allowPrint;
+          }
+        }
+        for (const item of section.items) {
+          for (const rule of project.securityRules) {
+            if (rule.targetType === "item" && rule.targetId === item.id) {
+              allowed = allowed && rule.allowPrint;
             }
-          : p
-      ),
-    })),
-
-  addQuestion: (question) =>
-    set((state) => ({ questions: [...state.questions, question] })),
-
-  addReply: (questionId, reply) =>
-    set((state) => ({
-      questions: state.questions.map((q) =>
-        q.id === questionId
-          ? { ...q, replies: [...q.replies, reply], status: "replied" as const }
-          : q
-      ),
-    })),
-
-  updateQuestionStatus: (questionId, status) =>
-    set((state) => ({
-      questions: state.questions.map((q) =>
-        q.id === questionId ? { ...q, status } : q
-      ),
-    })),
-
-  addActivity: (activity) =>
-    set((state) => ({ activities: [activity, ...state.activities] })),
-
-  addTemplate: (template) =>
-    set((state) => ({ templates: [...state.templates, template] })),
-
-  updateTemplate: (id, updates) =>
-    set((state) => ({
-      templates: state.templates.map((t) =>
-        t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t
-      ),
-    })),
-
-  updateWatermarkConfig: (projectId, config) =>
-    set((state) => ({
-      projects: state.projects.map((p) =>
-        p.id === projectId ? { ...p, watermarkConfig: config } : p
-      ),
-    })),
-
-  updateSecurityRule: (projectId, rule) =>
-    set((state) => ({
-      projects: state.projects.map((p) =>
-        p.id === projectId
-          ? {
-              ...p,
-              securityRules: [
-                ...p.securityRules.filter((r) => r.targetId !== rule.targetId),
-                rule,
-              ],
+          }
+          for (const f of item.files) {
+            if (f.id === fileId) {
+              allowed = allowed && f.allowPrint;
             }
-          : p
-      ),
-    })),
+          }
+        }
+      }
+      return allowed;
+    },
 
-  switchViewRole: (role) => set({ currentViewRole: role }),
-}));
+    getQuestionsForItem: (projectId, itemId) => {
+      return get().questions.filter((q) => q.projectId === projectId && q.itemId === itemId);
+    },
+
+    getAssignedProjects: (userId) => {
+      return get().projects.filter((p) => p.assignedTo.includes(userId));
+    },
+
+    resetStore: () => {
+      const fresh = getInitials();
+      localStorage.removeItem(STORAGE_KEY);
+      set({
+        ...fresh,
+      });
+    },
+  };
+});
+
+export function buildWatermarkText(
+  template: string,
+  user: { name: string; email: string },
+  date = new Date()
+): string {
+  return template
+    .replace(/\{name\}/g, user.name)
+    .replace(/\{email\}/g, user.email)
+    .replace(/\{date\}/g, date.toLocaleDateString("zh-CN"));
+}
+
+export function createProjectFromTemplate(
+  templateId: string,
+  name: string,
+  type: ProjectType,
+  assignedTo: string[],
+  templates: Template[]
+): Project {
+  const tpl = templates.find((t) => t.id === templateId) || templates[0];
+  const sections: ProjectSection[] = tpl.sections.map((s) => ({
+    id: `${s.id}-${Date.now()}`,
+    name: s.name,
+    order: s.order,
+    items: s.items.map((item) => ({
+      id: `${item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: item.name,
+      description: item.description,
+      required: item.required,
+      acceptedFormats: item.acceptedFormats,
+      status: "pending" as const,
+      files: [],
+    })),
+  }));
+  return {
+    id: `proj-${Date.now()}`,
+    name,
+    type,
+    status: "active",
+    templateId: tpl.id,
+    sections,
+    assignedTo,
+    createdBy: "u1",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    watermarkConfig: {
+      enabled: true,
+      textTemplate: "{name} - {email} - {date}",
+      fontSize: 14,
+      opacity: 0.15,
+      rotation: -30,
+    },
+    securityRules: [
+      { targetId: "", targetType: "project", allowDownload: false, allowPrint: false, allowShare: false },
+    ],
+  };
+}

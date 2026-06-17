@@ -1,6 +1,6 @@
 import { useLocation, useNavigate, Link, Outlet } from "react-router-dom";
-import { LayoutDashboard, FileText, FolderOpen, Users, ArrowLeftRight } from "lucide-react";
-import { useStore } from "@/store";
+import { LayoutDashboard, FileText, FolderOpen, Users, ArrowLeftRight, ChevronDown } from "lucide-react";
+import { users, useStore } from "@/store";
 
 const navItems = [
   { label: "仪表盘", icon: LayoutDashboard, path: "/" },
@@ -10,7 +10,13 @@ const navItems = [
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { projects, currentViewRole, switchViewRole, currentUser } = useStore();
+  const { projects, currentViewRole, switchViewRole, currentUserId, setCurrentUser } = useStore();
+  const currentUser = users.find((u) => u.id === currentUserId) || users[0];
+
+  const filteredProjects =
+    currentViewRole === "investor"
+      ? projects
+      : projects.filter((p) => p.assignedTo.includes(currentUserId));
 
   const breadcrumbs = buildBreadcrumbs(location.pathname, projects);
 
@@ -58,7 +64,7 @@ export default function Layout() {
             <p className="px-4 py-2 text-[10px] font-semibold text-navy-500 uppercase tracking-wider">
               项目
             </p>
-            {projects.map((project) => {
+            {filteredProjects.map((project) => {
               const isActive = location.pathname.startsWith(`/project/${project.id}`);
               return (
                 <button
@@ -71,19 +77,38 @@ export default function Layout() {
                 </button>
               );
             })}
+            {filteredProjects.length === 0 && (
+              <p className="px-4 py-2 text-xs text-navy-600">暂无分配项目</p>
+            )}
           </div>
         </nav>
 
         <div className="p-3 border-t border-navy-800">
-          <div className="flex items-center gap-3 px-3 py-2 mb-3">
-            <div className="w-8 h-8 rounded-full bg-gold-400/20 flex items-center justify-center">
-              <span className="text-xs font-bold text-gold-400">
-                {currentUser.name.slice(0, 1)}
-              </span>
+          <div className="px-3 py-2 mb-3">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-full bg-gold-400/20 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-bold text-gold-400">
+                  {currentUser.name.slice(0, 1)}
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-navy-100 truncate">{currentUser.name}</p>
+                <p className="text-[10px] text-navy-500 truncate">{currentUser.email}</p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-navy-100 truncate">{currentUser.name}</p>
-              <p className="text-[10px] text-navy-500 truncate">{currentUser.email}</p>
+            <div className="relative">
+              <select
+                value={currentUserId}
+                onChange={(e) => setCurrentUser(e.target.value)}
+                className="w-full appearance-none bg-navy-800/70 border border-navy-700/70 text-navy-200 text-[11px] rounded-md py-1.5 pl-2 pr-7 focus:outline-none focus:border-gold-400/50 hover:border-navy-600 transition-colors cursor-pointer"
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role === "investor" ? "投资方" : "被调查方"})
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-navy-500 pointer-events-none" />
             </div>
           </div>
 

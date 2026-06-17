@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import JSZip from "jszip";
-import { useStore } from "@/store";
+import { useStore, dataUrlToBlob, buildWatermarkText, users } from "@/store";
 import StatusBadge from "@/components/StatusBadge";
-import { Download, Search, Filter, FolderOpen, File, ChevronDown, ChevronRight, Package, Eye } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Download, Search, Filter, FolderOpen, File, ChevronDown, ChevronRight, Package, Eye, ShieldAlert } from "lucide-react";
 import type { ItemStatus } from "@/types";
 
 export default function Archive() {
   const { id } = useParams<{ id: string }>();
   const { projects } = useStore();
   const project = projects.find((p) => p.id === id);
+  const currentUserId = useStore((s) => s.currentUserId);
+  const canDownloadFileFn = useStore((s) => s.canDownloadFile);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ItemStatus>("all");
@@ -18,6 +21,8 @@ export default function Archive() {
   const [packScope, setPackScope] = useState<"all" | "approved" | "sections">("all");
   const [packWatermark, setPackWatermark] = useState(false);
   const [selectedSections, setSelectedSections] = useState<Record<string, boolean>>({});
+
+  const hasRestrictiveRules = project?.securityRules.some(r => !r.allowDownload) ?? false;
 
   if (!project) return <div className="flex h-full items-center justify-center text-gray-400">项目不存在</div>;
 
@@ -34,24 +39,70 @@ export default function Archive() {
 
   const handlePackageDownload = async () => {
     const zip = new JSZip();
+    const state = useStore.getState();
     const sectionsToInclude = packScope === "all"
       ? project.sections
       : packScope === "approved"
         ? project.sections.map((s) => ({ ...s, items: s.items.filter((i) => i.status === "approved") }))
         : project.sections.filter((s) => selectedSections[s.id]);
 
+    const manifest: string[] = [];
+    manifest.push("归档文件清单");
+    manifest.push("=".repeat(40));
+    manifest.push(`项目: ${project.name}`);
+    manifest.push(`生成时间: ${new Date().toLocaleString("zh-CN")}`);
+    manifest.push(`下载范围: ${packScope === "all" ? "全部文件" : packScope === "approved" ? "仅已通过" : "指定章节"}`);
+    manifest.push(`水印: ${packWatermark ? "已启用" : "未启用"}`);
+    manifest.push("");
+    manifest.push("文件列表:");
+    manifest.push("-".repeat(40));
+
+    const currentUser = users.find(u => u.id === currentUserId) || { name: "未知用户", email: "unknown@example.com" };
+    const watermarkText = project.watermarkConfig.enabled && packWatermark
+      ? buildWatermarkText(project.watermarkConfig.textTemplate, currentUser)
+      : "";
+
     for (const section of sectionsToInclude) {
       const folder = zip.folder(section.name);
+      manifest.push(`\n[${section.name}]`);
       for (const item of section.items) {
         if (item.files.length > 0) {
           for (const file of item.files) {
-            folder?.file(file.name, `文件: ${file.name}\n大小: ${(file.size / 1024).toFixed(1)}KB\n类型: ${file.type}\n水印: ${packWatermark ? "已启用" : "未启用"}`);
+            const canDownload = state.canDownloadFile(project.id, file.id);
+            const fileContent = state.fileContents[file.id];
+            const manifestLine = `  - ${file.name} (${item.name}): ${canDownload ? "已包含" : "下载受限-已替换为说明文件"}`;
+            manifest.push(manifestLine);
+
+            if (!canDownload) {
+              folder?.file(`${file.name}-权限说明.txt`, `文件: ${file.name}\n材料: ${item.name}\n\n说明: 管理员已禁用此文件的下载权限。\n如需获取原文件，请联系项目管理员。`);
+              continue;
+            }
+
+            if (fileContent) {
+              const blob = dataUrlToBlob(fileContent);
+              folder?.file(file.name, blob);
+            } else {
+              let metaContent = `[文件元数据 - 原内容未存储]\n\n文件: ${file.name}\n大小: ${(file.size / 1024).toFixed(1)}KB\n类型: ${file.type}\n上传时间: ${new Date(file.uploadedAt).toLocaleString("zh-CN")}\n所属材料: ${item.name}\n状态: ${item.status}\n描述: ${item.description}\n水印: ${packWatermark ? "已启用" : "未启用"}`;
+              if (watermarkText) {
+                metaContent = `[水印] ${watermarkText}\n\n${metaContent}`;
+              }
+              folder?.file(`${file.name}-metadata.txt`, metaContent);
+            }
           }
         } else {
-          folder?.file(`${item.name}.txt`, `材料: ${item.name}\n状态: ${item.status}\n描述: ${item.description}`);
+          let infoContent = `材料: ${item.name}\n状态: ${item.status}\n描述: ${item.description}\n\n此材料尚未上传文件。`;
+          if (watermarkText) {
+            infoContent = `[水印] ${watermarkText}\n\n${infoContent}`;
+          }
+          folder?.file(`${item.name}.txt`, infoContent);
+          manifest.push(`  - ${item.name}: 未上传`);
         }
       }
     }
+
+    manifest.push("\n" + "=".repeat(40));
+    manifest.push("清单结束");
+    zip.file("INDEX.txt", manifest.join("\n"));
 
     const blob = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(blob);
@@ -67,6 +118,12 @@ export default function Archive() {
 
   return (
     <div className="flex h-full flex-col bg-navy-950 text-white">
+      {hasRestrictiveRules && (
+        <div className="flex items-center gap-3 border-b border-amber-700/50 bg-amber-900/20 px-6 py-3">
+          <ShieldAlert className="h-5 w-5 text-amber-400 shrink-0" />
+          <p className="text-sm text-amber-300">安全提示: 当前项目存在下载限制，部分文件可能无法下载。</p>
+        </div>
+      )}
       <div className="flex items-center gap-3 border-b border-navy-800 px-6 py-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
@@ -129,12 +186,23 @@ export default function Archive() {
                     </div>
                     <StatusBadge status={item.status} />
                     <div className="flex items-center gap-1">
-                      {item.files.map((f) => (
-                        <span key={f.id} className="flex gap-1">
-                          <button className="rounded p-1 hover:bg-navy-800"><Eye className="h-3.5 w-3.5 text-gray-400" /></button>
-                          <button className="rounded p-1 hover:bg-navy-800"><Download className="h-3.5 w-3.5 text-gray-400" /></button>
-                        </span>
-                      ))}
+                      {item.files.map((f) => {
+                        const canDownload = canDownloadFileFn(project.id, f.id);
+                        return (
+                          <span key={f.id} className="flex gap-1">
+                            <button className="rounded p-1 hover:bg-navy-800" title={f.hasWatermark ? "预览(含水印)" : "预览"}>
+                              <Eye className={cn("h-3.5 w-3.5", f.hasWatermark ? "text-blue-400" : "text-gray-400")} />
+                            </button>
+                            <button
+                              className={cn("rounded p-1", canDownload ? "hover:bg-navy-800 cursor-pointer" : "cursor-not-allowed opacity-50")}
+                              disabled={!canDownload}
+                              title={canDownload ? "下载" : "管理员已禁用下载权限"}
+                            >
+                              <Download className="h-3.5 w-3.5 text-gray-400" />
+                            </button>
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

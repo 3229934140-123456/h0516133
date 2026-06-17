@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { useStore } from "@/store";
+import { useStore, users as allUsers } from "@/store";
 import StatusBadge from "@/components/StatusBadge";
-import { Plus, Send, MessageSquare, ChevronDown, Tag, Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { Plus, Send, MessageSquare, ChevronDown, Tag, Clock, CheckCircle, AlertCircle, MessageCircle } from "lucide-react";
 import type { Question, Reply } from "@/types";
 
 export default function Questions() {
   const { id } = useParams<{ id: string }>();
-  const { projects, questions, addQuestion, addReply, currentUser } = useStore();
+  const { projects, questions, addQuestion, addReply, currentUserId, currentViewRole, addActivity } = useStore();
   const project = projects.find((p) => p.id === id);
+  const currentUser = allUsers.find((u) => u.id === currentUserId) || allUsers[0];
 
   const projectQuestions = questions.filter((q) => q.projectId === id);
   const [selectedQ, setSelectedQ] = useState<Question | null>(null);
@@ -19,6 +20,21 @@ export default function Questions() {
   const [newItemId, setNewItemId] = useState("");
 
   const allItems = project?.sections.flatMap((s) => s.items) ?? [];
+
+  useEffect(() => {
+    if (!selectedQ) return;
+    const fresh = projectQuestions.find((q) => q.id === selectedQ.id);
+    if (fresh && fresh !== selectedQ) {
+      setSelectedQ(fresh);
+    }
+  }, [projectQuestions, selectedQ]);
+
+  const counts = useMemo(() => {
+    const open = projectQuestions.filter((q) => q.status === "open").length;
+    const replied = projectQuestions.filter((q) => q.status === "replied").length;
+    const closed = projectQuestions.filter((q) => q.status === "closed").length;
+    return { open, replied, closed };
+  }, [projectQuestions]);
 
   const handleReply = () => {
     if (!selectedQ || !replyText.trim()) return;
@@ -31,13 +47,22 @@ export default function Questions() {
       createdAt: new Date().toISOString(),
     };
     addReply(selectedQ.id, reply);
+    addActivity({
+      id: `a-${Date.now()}`,
+      projectId: id!,
+      projectName: project?.name ?? "",
+      action: "回复问题",
+      detail: `回复了「${selectedQ.title}」：${replyText.trim()}`,
+      userName: currentUser.name,
+      timestamp: new Date().toISOString(),
+    });
     setReplyText("");
   };
 
   const handleNewQuestion = () => {
     if (!id || !newTitle.trim() || !newContent.trim()) return;
     const item = allItems.find((i) => i.id === newItemId);
-    const q: Question = {
+    const newQ: Question = {
       id: `q-${Date.now()}`,
       projectId: id,
       itemId: newItemId || "unknown",
@@ -50,11 +75,21 @@ export default function Questions() {
       replies: [],
       createdAt: new Date().toISOString(),
     };
-    addQuestion(q);
+    addQuestion(newQ);
+    addActivity({
+      id: `a-${Date.now() + 1}`,
+      projectId: id,
+      projectName: project?.name ?? "",
+      action: "发起提问",
+      detail: `对「${newQ.itemName}」发起提问：${newQ.title}`,
+      userName: currentUser.name,
+      timestamp: new Date().toISOString(),
+    });
     setNewTitle("");
     setNewContent("");
     setNewItemId("");
     setShowNewForm(false);
+    setSelectedQ(newQ);
   };
 
   return (
@@ -62,12 +97,29 @@ export default function Questions() {
       <div className="w-96 flex-shrink-0 border-r border-navy-800 flex flex-col">
         <div className="flex items-center justify-between border-b border-navy-800 px-4 py-3">
           <h2 className="font-display text-lg text-gold-400">问答中心</h2>
-          <button
-            onClick={() => setShowNewForm(!showNewForm)}
-            className="flex items-center gap-1 rounded-lg bg-gold-400 px-3 py-1.5 text-xs font-medium text-navy-950 hover:bg-gold-500"
-          >
-            <Plus className="h-3.5 w-3.5" /> 新提问
-          </button>
+          {currentViewRole === "investor" && (
+            <button
+              onClick={() => setShowNewForm(!showNewForm)}
+              className="flex items-center gap-1 rounded-lg bg-gold-400 px-3 py-1.5 text-xs font-medium text-navy-950 hover:bg-gold-500"
+            >
+              <Plus className="h-3.5 w-3.5" /> 新提问
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 border-b border-navy-800 px-4 py-2.5">
+          <div className="flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1">
+            <AlertCircle className="h-3 w-3 text-amber-400" />
+            <span className="text-xs font-medium text-amber-400">待回复 {counts.open}</span>
+          </div>
+          <div className="flex items-center gap-1 rounded-md bg-blue-500/15 px-2 py-1">
+            <MessageCircle className="h-3 w-3 text-blue-400" />
+            <span className="text-xs font-medium text-blue-400">已回复 {counts.replied}</span>
+          </div>
+          <div className="flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-1">
+            <CheckCircle className="h-3 w-3 text-emerald-400" />
+            <span className="text-xs font-medium text-emerald-400">已关闭 {counts.closed}</span>
+          </div>
         </div>
 
         {showNewForm && (
@@ -118,9 +170,17 @@ export default function Questions() {
                 <StatusBadge status={q.status} />
               </div>
               <p className="text-sm font-medium text-white">{q.title}</p>
-              <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
-                <Clock className="h-3 w-3" />
-                {new Date(q.createdAt).toLocaleDateString()}
+              <div className="flex items-center justify-between mt-1">
+                <div className="flex items-center gap-1 text-xs text-gray-500">
+                  <Clock className="h-3 w-3" />
+                  {new Date(q.createdAt).toLocaleDateString()}
+                </div>
+                {q.replies.length > 0 && (
+                  <div className="flex items-center gap-1 text-xs text-navy-400">
+                    <MessageSquare className="h-3 w-3" />
+                    {q.replies.length} 回复
+                  </div>
+                )}
               </div>
             </button>
           ))}
