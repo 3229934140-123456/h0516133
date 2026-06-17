@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   Project, Template, Question, ActivityLog, User,
   ProjectItem, UploadedFile, Review, ProjectSection,
-  WatermarkConfig, SecurityRule, Reply, ProjectType, ExportRecord,
+  WatermarkConfig, SecurityRule, Reply, ProjectType, ExportRecord, ExportPreset,
 } from "@/types";
 import { defaultTemplates } from "@/data/templates";
 
@@ -104,9 +104,62 @@ function makeInitialProjects(): Project[] {
       },
       securityRules: [],
       exportRecords: [],
+      exportPresets: makeDefaultPresets(pi),
     });
   }
   return projects;
+}
+
+function makeDefaultPresets(projectIndex: number): ExportPreset[] {
+  const pid = `proj-${projectIndex + 1}`;
+  const now = new Date().toISOString();
+  return [
+    {
+      id: `preset-${pid}-ic`,
+      projectId: pid,
+      name: "投委会版",
+      description: "面向投委会决策使用，仅导出已审核通过材料，启用水印",
+      icon: "🏛️",
+      scope: "approved",
+      sectionIds: [],
+      watermarkEnabled: true,
+      includePendingItems: false,
+      statusFilter: "approved",
+      createdBy: "u1",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: `preset-${pid}-legal`,
+      projectId: pid,
+      name: "法务版",
+      description: "法务尽调专版，包含法律合规、诉讼仲裁等章节",
+      icon: "⚖️",
+      scope: "all",
+      sectionIds: [],
+      watermarkEnabled: true,
+      includePendingItems: true,
+      statusFilter: "all",
+      createdBy: "u1",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: `preset-${pid}-fin`,
+      projectId: pid,
+      name: "财务版",
+      description: "财务审计专版，仅财务相关章节，包含未上传项清单",
+      icon: "💰",
+      scope: "all",
+      sectionIds: [],
+      watermarkEnabled: true,
+      includePendingItems: true,
+      statusFilter: "all",
+      createdBy: "u1",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
 }
 
 function makeInitialQuestions(): Question[] {
@@ -457,6 +510,10 @@ interface AppState extends PersistState {
   getAssignedProjects: (userId: string) => Project[];
   addExportRecord: (projectId: string, record: ExportRecord) => void;
 
+  addExportPreset: (projectId: string, preset: Omit<ExportPreset, "id" | "projectId" | "createdAt" | "updatedAt">) => ExportPreset;
+  updateExportPreset: (projectId: string, presetId: string, updates: Partial<ExportPreset>) => void;
+  deleteExportPreset: (projectId: string, presetId: string) => void;
+
   resetStore: () => void;
 }
 
@@ -524,6 +581,65 @@ export const useStore = create<AppState>((set, get) => {
                   exportRecords: [record, ...p.exportRecords].slice(0, 50),
                   updatedAt: new Date().toISOString(),
                 }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    addExportPreset: (projectId, preset) => {
+      const full: ExportPreset = {
+        ...preset,
+        id: `preset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        projectId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? { ...p, exportPresets: [...p.exportPresets, full], updatedAt: new Date().toISOString() }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+      return full;
+    },
+
+    updateExportPreset: (projectId, presetId, updates) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  exportPresets: p.exportPresets.map((pr) =>
+                    pr.id === presetId ? { ...pr, ...updates, updatedAt: new Date().toISOString() } : pr
+                  ),
+                  updatedAt: new Date().toISOString(),
+                }
+              : p
+          ),
+        };
+        persist(next);
+        return next;
+      });
+    },
+
+    deleteExportPreset: (projectId, presetId) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? { ...p, exportPresets: p.exportPresets.filter((pr) => pr.id !== presetId), updatedAt: new Date().toISOString() }
               : p
           ),
         };
@@ -863,6 +979,8 @@ export function createProjectFromTemplate(
   templates: Template[]
 ): Project {
   const tpl = templates.find((t) => t.id === templateId) || templates[0];
+  const id = `proj-${Date.now()}`;
+  const now = new Date().toISOString();
   const sections: ProjectSection[] = tpl.sections.map((s) => ({
     id: `${s.id}-${Date.now()}`,
     name: s.name,
@@ -878,7 +996,7 @@ export function createProjectFromTemplate(
     })),
   }));
   return {
-    id: `proj-${Date.now()}`,
+    id,
     name,
     type,
     status: "active",
@@ -886,8 +1004,8 @@ export function createProjectFromTemplate(
     sections,
     assignedTo,
     createdBy: "u1",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
     watermarkConfig: {
       enabled: true,
       textTemplate: "{name} - {email} - {date}",
@@ -899,5 +1017,52 @@ export function createProjectFromTemplate(
       { targetId: "", targetType: "project", allowDownload: false, allowPrint: false, allowShare: false },
     ],
     exportRecords: [],
+    exportPresets: [
+      {
+        id: `preset-${id}-ic`,
+        projectId: id,
+        name: "投委会版",
+        description: "面向投委会决策使用，仅导出已审核通过材料，启用水印",
+        icon: "🏛️",
+        scope: "approved",
+        sectionIds: [],
+        watermarkEnabled: true,
+        includePendingItems: false,
+        statusFilter: "approved",
+        createdBy: "u1",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `preset-${id}-legal`,
+        projectId: id,
+        name: "法务版",
+        description: "法务尽调专版，包含未上传项清单，启用水印",
+        icon: "⚖️",
+        scope: "all",
+        sectionIds: [],
+        watermarkEnabled: true,
+        includePendingItems: true,
+        statusFilter: "all",
+        createdBy: "u1",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `preset-${id}-fin`,
+        projectId: id,
+        name: "财务版",
+        description: "财务审计专版，包含未上传项清单，启用水印",
+        icon: "💰",
+        scope: "all",
+        sectionIds: [],
+        watermarkEnabled: true,
+        includePendingItems: true,
+        statusFilter: "all",
+        createdBy: "u1",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
   };
 }

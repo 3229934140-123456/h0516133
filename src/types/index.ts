@@ -94,6 +94,37 @@ export interface SecurityRule {
   allowShare: boolean;
 }
 
+export interface ExportPreset {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string;
+  icon: string;
+  scope: "all" | "approved" | "sections" | "filtered";
+  sectionIds: string[];
+  watermarkEnabled: boolean;
+  includePendingItems: boolean;
+  searchKeyword?: string;
+  statusFilter?: "all" | ItemStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExportFileRef {
+  fileId: string;
+  fileName: string;
+  itemId: string;
+  itemName: string;
+  sectionId: string;
+  sectionName: string;
+  size: number;
+  watermarked: boolean;
+  wrappedInHtml: boolean;
+  blocked: boolean;
+  blockReason?: string;
+}
+
 export interface ExportRecord {
   id: string;
   projectId: string;
@@ -104,8 +135,15 @@ export interface ExportRecord {
   scopeDescription: string;
   sectionIds?: string[];
   watermarkEnabled: boolean;
+  includePendingItems: boolean;
   fileCount: number;
   packageSizeBytes: number;
+  presetId?: string;
+  presetName?: string;
+  searchKeyword?: string;
+  statusFilter?: "all" | ItemStatus;
+  files: ExportFileRef[];
+  blockedFiles: ExportFileRef[];
 }
 
 export interface Project {
@@ -122,6 +160,7 @@ export interface Project {
   watermarkConfig: WatermarkConfig;
   securityRules: SecurityRule[];
   exportRecords: ExportRecord[];
+  exportPresets: ExportPreset[];
 }
 
 export type QuestionStatus = "open" | "replied" | "closed";
