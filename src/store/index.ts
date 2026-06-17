@@ -230,6 +230,76 @@ export function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([arr], { type: mime });
 }
 
+export async function applyWatermarkToDataUrl(
+  dataUrl: string,
+  watermarkText: string,
+  config: { fontSize: number; opacity: number; rotation: number }
+): Promise<string> {
+  const [meta, b64] = dataUrl.split(",");
+  const mimeMatch = meta.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+
+  if (mime.startsWith("image/")) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0);
+
+        ctx.save();
+        ctx.font = `${config.fontSize}px sans-serif`;
+        ctx.fillStyle = `rgba(148, 163, 184, ${config.opacity})`;
+        const textMetrics = ctx.measureText(watermarkText);
+        const textWidth = textMetrics.width + 80;
+        const textHeight = config.fontSize + 40;
+        const rad = (config.rotation * Math.PI) / 180;
+
+        const diag = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height);
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(rad);
+
+        for (let x = -diag; x < diag; x += textWidth) {
+          for (let y = -diag; y < diag; y += textHeight) {
+            ctx.fillText(watermarkText, x, y);
+          }
+        }
+        ctx.restore();
+        resolve(canvas.toDataURL(mime === "image/jpeg" ? "image/jpeg" : "image/png"));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
+
+  if (mime === "application/pdf" || mime === "text/plain" || mime.includes("text/")) {
+    const header = `\n\n===== 水印 =====\n${watermarkText}\n${watermarkText}\n${watermarkText}\n=================\n\n`;
+    try {
+      const binary = atob(b64);
+      const isText = mime.startsWith("text/");
+      if (isText) {
+        const decoder = new TextDecoder("utf-8");
+        const arr = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+        const text = decoder.decode(arr);
+        const newText = header + text + header;
+        const encoder = new TextEncoder();
+        const newArr = encoder.encode(newText);
+        let b = "";
+        for (let i = 0; i < newArr.length; i++) b += String.fromCharCode(newArr[i]);
+        return `data:${mime};base64,` + btoa(b);
+      }
+      return dataUrl;
+    } catch {
+      return dataUrl;
+    }
+  }
+
+  return dataUrl;
+}
+
 interface AppState extends PersistState {
   addFileContent: (fileId: string, dataUrl: string) => void;
   getFileContent: (fileId: string) => string | undefined;

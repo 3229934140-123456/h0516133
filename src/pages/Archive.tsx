@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import JSZip from "jszip";
-import { useStore, dataUrlToBlob, buildWatermarkText, users } from "@/store";
+import { useStore, dataUrlToBlob, buildWatermarkText, users, applyWatermarkToDataUrl } from "@/store";
 import StatusBadge from "@/components/StatusBadge";
 import { cn } from "@/lib/utils";
 import { Download, Search, Filter, FolderOpen, File, ChevronDown, ChevronRight, Package, Eye, ShieldAlert } from "lucide-react";
@@ -21,10 +21,88 @@ export default function Archive() {
   const [packScope, setPackScope] = useState<"all" | "approved" | "sections">("all");
   const [packWatermark, setPackWatermark] = useState(false);
   const [selectedSections, setSelectedSections] = useState<Record<string, boolean>>({});
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const hasRestrictiveRules = project?.securityRules.some(r => !r.allowDownload) ?? false;
 
   if (!project) return <div className="flex h-full items-center justify-center text-gray-400">项目不存在</div>;
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleSingleDownload = async (file: { id: string; name: string }) => {
+    const canDownload = canDownloadFileFn(project.id, file.id);
+    if (!canDownload) return;
+    const state = useStore.getState();
+    const fileContent = state.fileContents[file.id];
+    const currentUser = users.find(u => u.id === state.currentUserId) || { name: "未知用户", email: "unknown@example.com" };
+    let outDataUrl: string | null = null;
+
+    if (fileContent) {
+      if (project.watermarkConfig.enabled) {
+        const wmText = buildWatermarkText(project.watermarkConfig.textTemplate, currentUser);
+        outDataUrl = await applyWatermarkToDataUrl(fileContent, wmText, {
+          fontSize: project.watermarkConfig.fontSize,
+          opacity: project.watermarkConfig.opacity + 0.05,
+          rotation: project.watermarkConfig.rotation,
+        });
+      } else {
+        outDataUrl = fileContent;
+      }
+      triggerDownload(dataUrlToBlob(outDataUrl), file.name);
+    } else {
+      const fallbackMeta = `[文件元数据 - 原内容未存储]\n\n文件: ${file.name}\n所属项目: ${project.name}\n下载时间: ${new Date().toLocaleString("zh-CN")}\n下载人: ${currentUser.name} (${currentUser.email})`;
+      let finalMeta = fallbackMeta;
+      if (project.watermarkConfig.enabled) {
+        const wmText = buildWatermarkText(project.watermarkConfig.textTemplate, currentUser);
+        finalMeta = `[水印] ${wmText}\n[水印] ${wmText}\n[水印] ${wmText}\n\n${fallbackMeta}`;
+      }
+      triggerDownload(new Blob([finalMeta], { type: "text/plain" }), `${file.name}-说明.txt`);
+    }
+  };
+
+  const handlePreview = (file: { id: string; name: string }) => {
+    const state = useStore.getState();
+    const fileContent = state.fileContents[file.id];
+    if (fileContent) {
+      const blob = dataUrlToBlob(fileContent);
+      const url = URL.createObjectURL(blob);
+      const win = window.open("", "_blank");
+      if (win) {
+        const isImage = blob.type.startsWith("image/");
+        const isText = blob.type.startsWith("text/");
+        const isPdf = blob.type === "application/pdf";
+        const currentUser = users.find(u => u.id === state.currentUserId) || { name: "未知用户", email: "unknown@example.com" };
+        const wmText = buildWatermarkText(project.watermarkConfig.textTemplate, currentUser);
+        const wmStyle = project.watermarkConfig.enabled ? `
+          position:fixed;inset:0;pointer-events:none;z-index:9999;
+          background-image:url("data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='300' height='200'><text x='50%' y='50%' fill='rgba(148,163,184,${project.watermarkConfig.opacity * 6})' font-family='sans-serif' font-size='${project.watermarkConfig.fontSize}' transform='rotate(${project.watermarkConfig.rotation} 150 100)' text-anchor='middle'>${wmText}</text></svg>`)}");
+          background-repeat: repeat;
+        ` : "";
+        if (isImage) {
+          win.document.write(`<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100vw;max-height:100vh"/><div style="${wmStyle}"></div></body></html>`);
+        } else if (isText) {
+          win.document.write(`<html><body style="margin:0;padding:20px;font-family:sans-serif"><pre style="white-space:pre-wrap"></pre><div style="${wmStyle}"></div></body></html>`);
+          win.document.querySelector("pre")!.textContent = "";
+          blob.text().then(t => { if (win.document.querySelector("pre")) win.document.querySelector("pre")!.textContent = t; });
+        } else if (isPdf) {
+          win.document.write(`<html><body style="margin:0"><iframe src="${url}" style="width:100vw;height:100vh;border:0"></iframe><div style="${wmStyle}"></div></body></html>`);
+        } else {
+          win.document.write(`<html><body style="margin:0;padding:40px;font-family:sans-serif;background:#f8fafc;color:#0f172a"><h2>${file.name}</h2><p>无法在线预览此文件类型，请下载后查看。</p><div style="${wmStyle}"></div></body></html>`);
+        }
+      }
+    } else {
+      alert("该文件没有存储预览内容");
+    }
+  };
 
   const toggleSection = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -38,6 +116,7 @@ export default function Archive() {
   })).filter((s) => s.items.length > 0);
 
   const handlePackageDownload = async () => {
+    setIsDownloading(true);
     const zip = new JSZip();
     const state = useStore.getState();
     const sectionsToInclude = packScope === "all"
@@ -57,8 +136,9 @@ export default function Archive() {
     manifest.push("文件列表:");
     manifest.push("-".repeat(40));
 
-    const currentUser = users.find(u => u.id === currentUserId) || { name: "未知用户", email: "unknown@example.com" };
-    const watermarkText = project.watermarkConfig.enabled && packWatermark
+    const currentUser = users.find(u => u.id === state.currentUserId) || { name: "未知用户", email: "unknown@example.com" };
+    const watermarkEnabled = project.watermarkConfig.enabled && packWatermark;
+    const watermarkText = watermarkEnabled
       ? buildWatermarkText(project.watermarkConfig.textTemplate, currentUser)
       : "";
 
@@ -70,29 +150,40 @@ export default function Archive() {
           for (const file of item.files) {
             const canDownload = state.canDownloadFile(project.id, file.id);
             const fileContent = state.fileContents[file.id];
-            const manifestLine = `  - ${file.name} (${item.name}): ${canDownload ? "已包含" : "下载受限-已替换为说明文件"}`;
+            const manifestLine = `  - ${file.name} (${item.name}): ${canDownload ? "已包含" : "下载受限-已替换为说明文件"} (${watermarkEnabled ? "含水印" : "无水印"})`;
             manifest.push(manifestLine);
 
             if (!canDownload) {
-              folder?.file(`${file.name}-权限说明.txt`, `文件: ${file.name}\n材料: ${item.name}\n\n说明: 管理员已禁用此文件的下载权限。\n如需获取原文件，请联系项目管理员。`);
+              folder?.file(`${file.name}-权限说明.txt`, `文件: ${file.name}\n材料: ${item.name}\n\n说明: 管理员已禁用此文件的下载权限。\n如需获取原文件，请联系项目管理员。\n查看人: ${currentUser.name} (${currentUser.email})`);
               continue;
             }
 
             if (fileContent) {
-              const blob = dataUrlToBlob(fileContent);
-              folder?.file(file.name, blob);
+              let finalDataUrl = fileContent;
+              if (watermarkEnabled) {
+                finalDataUrl = await applyWatermarkToDataUrl(fileContent, watermarkText, {
+                  fontSize: project.watermarkConfig.fontSize,
+                  opacity: project.watermarkConfig.opacity + 0.05,
+                  rotation: project.watermarkConfig.rotation,
+                });
+              }
+              const blob = dataUrlToBlob(finalDataUrl);
+              const finalName = watermarkEnabled && !blob.type.startsWith("image/") && !blob.type.startsWith("text/")
+                ? file.name.replace(/\.([^.]+)$/, ".wm.$1")
+                : file.name;
+              folder?.file(finalName, blob);
             } else {
-              let metaContent = `[文件元数据 - 原内容未存储]\n\n文件: ${file.name}\n大小: ${(file.size / 1024).toFixed(1)}KB\n类型: ${file.type}\n上传时间: ${new Date(file.uploadedAt).toLocaleString("zh-CN")}\n所属材料: ${item.name}\n状态: ${item.status}\n描述: ${item.description}\n水印: ${packWatermark ? "已启用" : "未启用"}`;
+              let metaContent = `[文件元数据 - 原内容未存储]\n\n文件: ${file.name}\n大小: ${(file.size / 1024).toFixed(1)}KB\n类型: ${file.type}\n上传时间: ${new Date(file.uploadedAt).toLocaleString("zh-CN")}\n所属材料: ${item.name}\n状态: ${item.status}\n描述: ${item.description}\n查看人: ${currentUser.name} (${currentUser.email})`;
               if (watermarkText) {
-                metaContent = `[水印] ${watermarkText}\n\n${metaContent}`;
+                metaContent = `[水印] ${watermarkText}\n[水印] ${watermarkText}\n[水印] ${watermarkText}\n\n${metaContent}`;
               }
               folder?.file(`${file.name}-metadata.txt`, metaContent);
             }
           }
         } else {
-          let infoContent = `材料: ${item.name}\n状态: ${item.status}\n描述: ${item.description}\n\n此材料尚未上传文件。`;
+          let infoContent = `材料: ${item.name}\n状态: ${item.status}\n描述: ${item.description}\n\n此材料尚未上传文件。\n查看人: ${currentUser.name}`;
           if (watermarkText) {
-            infoContent = `[水印] ${watermarkText}\n\n${infoContent}`;
+            infoContent = `[水印] ${watermarkText}\n[水印] ${watermarkText}\n\n${infoContent}`;
           }
           folder?.file(`${item.name}.txt`, infoContent);
           manifest.push(`  - ${item.name}: 未上传`);
@@ -105,13 +196,9 @@ export default function Archive() {
     zip.file("INDEX.txt", manifest.join("\n"));
 
     const blob = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${project?.name ?? "archive"}-归档.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
+    triggerDownload(blob, `${project?.name ?? "archive"}-归档.zip`);
     setShowModal(false);
+    setIsDownloading(false);
   };
 
   const formatSize = (bytes: number) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
@@ -190,15 +277,18 @@ export default function Archive() {
                         const canDownload = canDownloadFileFn(project.id, f.id);
                         return (
                           <span key={f.id} className="flex gap-1">
-                            <button className="rounded p-1 hover:bg-navy-800" title={f.hasWatermark ? "预览(含水印)" : "预览"}>
-                              <Eye className={cn("h-3.5 w-3.5", f.hasWatermark ? "text-blue-400" : "text-gray-400")} />
+                            <button onClick={() => handlePreview(f)} className="rounded p-1 hover:bg-navy-800" title={f.hasWatermark ? "预览(含水印)" : "预览"}>
+                              <Eye className={cn("h-3.5 w-3.5", f.hasWatermark || project.watermarkConfig.enabled ? "text-blue-400" : "text-gray-400")} />
                             </button>
                             <button
-                              className={cn("rounded p-1", canDownload ? "hover:bg-navy-800 cursor-pointer" : "cursor-not-allowed opacity-50")}
+                              onClick={() => handleSingleDownload(f)}
+                              className={cn("rounded p-1 transition-colors",
+                                canDownload ? "hover:bg-navy-800 cursor-pointer text-gray-400 hover:text-gold-400" : "cursor-not-allowed opacity-40 text-gray-500"
+                              )}
                               disabled={!canDownload}
-                              title={canDownload ? "下载" : "管理员已禁用下载权限"}
+                              title={canDownload ? "下载文件" : "管理员已禁用下载权限"}
                             >
-                              <Download className="h-3.5 w-3.5 text-gray-400" />
+                              <Download className="h-3.5 w-3.5" />
                             </button>
                           </span>
                         );
@@ -241,8 +331,10 @@ export default function Archive() {
               </label>
             </div>
             <div className="mt-6 flex gap-3">
-              <button onClick={() => setShowModal(false)} className="flex-1 rounded-lg border border-navy-700 py-2 text-sm text-gray-300 hover:bg-navy-800">取消</button>
-              <button onClick={handlePackageDownload} className="flex-1 rounded-lg bg-gold-400 py-2 text-sm font-medium text-navy-950 hover:bg-gold-500">下载</button>
+              <button onClick={() => setShowModal(false)} disabled={isDownloading} className="flex-1 rounded-lg border border-navy-700 py-2 text-sm text-gray-300 hover:bg-navy-800 disabled:opacity-50">取消</button>
+              <button onClick={handlePackageDownload} disabled={isDownloading} className="flex-1 rounded-lg bg-gold-400 py-2 text-sm font-medium text-navy-950 hover:bg-gold-500 disabled:opacity-50">
+                {isDownloading ? "打包中..." : "下载"}
+              </button>
             </div>
           </div>
         </div>
