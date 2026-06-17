@@ -94,6 +94,20 @@ export interface SecurityRule {
   allowShare: boolean;
 }
 
+export interface ExportRecord {
+  id: string;
+  projectId: string;
+  exportedBy: string;
+  exportedByName: string;
+  exportedAt: string;
+  scope: "all" | "approved" | "sections" | "filtered";
+  scopeDescription: string;
+  sectionIds?: string[];
+  watermarkEnabled: boolean;
+  fileCount: number;
+  packageSizeBytes: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -107,6 +121,7 @@ export interface Project {
   updatedAt: string;
   watermarkConfig: WatermarkConfig;
   securityRules: SecurityRule[];
+  exportRecords: ExportRecord[];
 }
 
 export type QuestionStatus = "open" | "replied" | "closed";

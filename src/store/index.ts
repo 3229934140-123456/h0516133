@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   Project, Template, Question, ActivityLog, User,
   ProjectItem, UploadedFile, Review, ProjectSection,
-  WatermarkConfig, SecurityRule, Reply, ProjectType,
+  WatermarkConfig, SecurityRule, Reply, ProjectType, ExportRecord,
 } from "@/types";
 import { defaultTemplates } from "@/data/templates";
 
@@ -103,6 +103,7 @@ function makeInitialProjects(): Project[] {
         rotation: -30,
       },
       securityRules: [],
+      exportRecords: [],
     });
   }
   return projects;
@@ -274,30 +275,151 @@ export async function applyWatermarkToDataUrl(
     });
   }
 
-  if (mime === "application/pdf" || mime === "text/plain" || mime.includes("text/")) {
-    const header = `\n\n===== 水印 =====\n${watermarkText}\n${watermarkText}\n${watermarkText}\n=================\n\n`;
+  if (mime.startsWith("text/")) {
     try {
       const binary = atob(b64);
-      const isText = mime.startsWith("text/");
-      if (isText) {
-        const decoder = new TextDecoder("utf-8");
-        const arr = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-        const text = decoder.decode(arr);
-        const newText = header + text + header;
-        const encoder = new TextEncoder();
-        const newArr = encoder.encode(newText);
-        let b = "";
-        for (let i = 0; i < newArr.length; i++) b += String.fromCharCode(newArr[i]);
-        return `data:${mime};base64,` + btoa(b);
-      }
-      return dataUrl;
+      const decoder = new TextDecoder("utf-8");
+      const arr = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+      const text = decoder.decode(arr);
+      const header = `\n\n===== 水印 =====\n${watermarkText}\n${watermarkText}\n${watermarkText}\n=================\n\n`;
+      const newText = header + text + header;
+      const encoder = new TextEncoder();
+      const newArr = encoder.encode(newText);
+      let b = "";
+      for (let i = 0; i < newArr.length; i++) b += String.fromCharCode(newArr[i]);
+      return `data:${mime};base64,` + btoa(b);
     } catch {
       return dataUrl;
     }
   }
 
   return dataUrl;
+}
+
+export function buildWatermarkedHtmlWrapper(
+  fileName: string,
+  fileMime: string,
+  fileDataUrl: string | null,
+  watermarkText: string,
+  config: { fontSize: number; opacity: number; rotation: number },
+  meta: { itemName?: string; uploadedAt?: string; viewerName: string; viewerEmail: string; projectName: string }
+): string {
+  const escapedWm = watermarkText.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+  const escapedFile = fileName.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+  const escapedProj = (meta.projectName || "").replace(/"/g, "&quot;");
+  const escapedItem = (meta.itemName || "").replace(/"/g, "&quot;");
+  const escapedViewer = (meta.viewerName || "").replace(/"/g, "&quot;");
+  const escapedEmail = (meta.viewerEmail || "").replace(/"/g, "&quot;");
+
+  const svgWm = encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='360' height='240'>
+      <text x='50%' y='50%'
+            fill='rgba(148,163,184,${config.opacity * 6})'
+            font-family='sans-serif'
+            font-size='${config.fontSize}'
+            transform='rotate(${config.rotation} 180 120)'
+            text-anchor='middle'
+            font-weight='500'>${escapedWm}</text>
+    </svg>`
+  );
+
+  const wmStyle = `
+    position: fixed; inset: 0; pointer-events: none; z-index: 999999;
+    background-image: url("data:image/svg+xml;utf8,${svgWm}");
+    background-repeat: repeat;
+    mix-blend-mode: multiply;
+  `;
+
+  const headerStyle = `
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #0F172A 0%, #1e293b 100%);
+    color: #e2e8f0;
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    border-bottom: 2px solid #D4A843;
+  `;
+
+  let contentHtml = "";
+  if (fileMime.startsWith("image/") && fileDataUrl) {
+    contentHtml = `<div style="padding:24px;text-align:center;background:#0b1120;min-height:calc(100vh - 60px)">
+      <img src="${fileDataUrl}" style="max-width:100%;max-height:calc(100vh - 100px);box-shadow:0 8px 40px rgba(0,0,0,0.5);border-radius:8px" />
+    </div>`;
+  } else if (fileMime === "application/pdf" && fileDataUrl) {
+    contentHtml = `<iframe src="${fileDataUrl}" style="width:100%;height:calc(100vh - 60px);border:0;background:white"></iframe>`;
+  } else if (fileMime.startsWith("text/") && fileDataUrl) {
+    try {
+      const [, b64] = fileDataUrl.split(",");
+      const bin = atob(b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const txt = new TextDecoder("utf-8").decode(arr).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      contentHtml = `<pre style="margin:0;padding:24px;background:#0b1120;color:#e2e8f0;min-height:calc(100vh - 60px);white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:13px;line-height:1.6">${txt}</pre>`;
+    } catch {
+      contentHtml = buildFallbackContent(escapedFile, fileMime, meta);
+    }
+  } else {
+    contentHtml = buildFallbackContent(escapedFile, fileMime, meta);
+  }
+
+  const headerHtml = `<div style="${headerStyle}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:15px;font-weight:600;color:#D4A843">📄 ${escapedFile}</div>
+        <div style="margin-top:4px;opacity:0.75;font-size:12px">项目: ${escapedProj} | 材料: ${escapedItem || "—"} | 查看人: ${escapedViewer} &lt;${escapedEmail}&gt;</div>
+      </div>
+      <div style="display:flex;gap:12px;font-size:11px;opacity:0.85">
+        <span>🕒 ${meta.uploadedAt ? new Date(meta.uploadedAt).toLocaleString("zh-CN") : "—"}</span>
+        <span style="color:#D4A843;font-weight:600">🔒 已加密水印</span>
+      </div>
+    </div>
+  </div>`;
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>🔒 ${escapedFile} - 水印视图</title>
+<style>
+html,body{margin:0;padding:0;background:#0b1120;}
+@media print {
+  body::after{content:'${escapedWm}';position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:80px;color:rgba(148,163,184,0.08);transform:rotate(-30deg);white-space:nowrap;z-index:99999;pointer-events:none;}
+}
+</style>
+</head>
+<body>
+  ${headerHtml}
+  <div style="position:relative">
+    ${contentHtml}
+    <div style="${wmStyle}"></div>
+  </div>
+</body>
+</html>`;
+}
+
+function buildFallbackContent(escapedFile: string, fileMime: string, meta: { itemName?: string; viewerName: string; viewerEmail: string; projectName: string }): string {
+  return `<div style="padding:80px 40px;text-align:center;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);min-height:calc(100vh - 160px);font-family:system-ui,sans-serif;color:#e2e8f0">
+    <div style="font-size:96px;margin-bottom:24px">📎</div>
+    <div style="font-size:28px;font-weight:600;color:#D4A843;margin-bottom:12px">${escapedFile}</div>
+    <div style="font-size:14px;color:#94a3b8;margin-bottom:32px">文件类型: ${fileMime}</div>
+    <div style="max-width:560px;margin:0 auto;padding:28px 36px;background:rgba(30,41,59,0.7);border:1px solid rgba(212,168,67,0.3);border-radius:12px;text-align:left;font-size:13px;line-height:1.9">
+      <div style="color:#D4A843;font-weight:600;margin-bottom:16px;font-size:15px">⚠️ 水印安全视图说明</div>
+      <div>此文件类型（${fileMime}）不支持在浏览器中直接叠加水印渲染。</div>
+      <div>为确保水印控制, 提供如下措施:</div>
+      <ul style="margin:12px 0;padding-left:20px">
+        <li>本 HTML 文件已通过 CSS 平铺水印覆盖全页 <span style="color:#D4A843">(全屏可见)</span></li>
+        <li>浏览器打印时将自动叠加超大水印文字 <span style="color:#D4A843">(防打印)</span></li>
+        <li>文件元信息与查看人信息已嵌入文件头 <span style="color:#D4A843">(可追溯)</span></li>
+      </ul>
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(212,168,67,0.2);color:#94a3b8;font-size:12px">
+        所属项目: ${meta.projectName}<br/>
+        关联材料: ${meta.itemName || "—"}<br/>
+        查看人: ${meta.viewerName} (${meta.viewerEmail})<br/>
+        导出时间: ${new Date().toLocaleString("zh-CN")}
+      </div>
+    </div>
+  </div>`;
 }
 
 interface AppState extends PersistState {
@@ -333,6 +455,7 @@ interface AppState extends PersistState {
   canPrintFile: (projectId: string, fileId: string) => boolean;
   getQuestionsForItem: (projectId: string, itemId: string) => Question[];
   getAssignedProjects: (userId: string) => Project[];
+  addExportRecord: (projectId: string, record: ExportRecord) => void;
 
   resetStore: () => void;
 }
@@ -385,6 +508,25 @@ export const useStore = create<AppState>((set, get) => {
     deleteProject: (id) => {
       set((s) => {
         const next = { ...s, projects: s.projects.filter((p) => p.id !== id) };
+        persist(next);
+        return next;
+      });
+    },
+
+    addExportRecord: (projectId, record) => {
+      set((s) => {
+        const next = {
+          ...s,
+          projects: s.projects.map((p) =>
+            p.id === projectId
+              ? {
+                  ...p,
+                  exportRecords: [record, ...p.exportRecords].slice(0, 50),
+                  updatedAt: new Date().toISOString(),
+                }
+              : p
+          ),
+        };
         persist(next);
         return next;
       });
@@ -756,5 +898,6 @@ export function createProjectFromTemplate(
     securityRules: [
       { targetId: "", targetType: "project", allowDownload: false, allowPrint: false, allowShare: false },
     ],
+    exportRecords: [],
   };
 }
