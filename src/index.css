@@ -1,0 +1,133 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --navy-50: #f0f4f8;
+  --navy-100: #d9e2ec;
+  --navy-200: #bcccdc;
+  --navy-300: #9fb3c8;
+  --navy-400: #829ab1;
+  --navy-500: #627d98;
+  --navy-600: #486581;
+  --navy-700: #334e68;
+  --navy-800: #243b53;
+  --navy-900: #102a43;
+  --navy-950: #0F172A;
+
+  --gold-50: #fdf8ef;
+  --gold-100: #faefd5;
+  --gold-200: #f4dcaa;
+  --gold-300: #e9c36e;
+  --gold-400: #D4A843;
+  --gold-500: #c4922a;
+  --gold-600: #a87520;
+  --gold-700: #8a591c;
+  --gold-800: #6f471e;
+  --gold-900: #5b3b1d;
+
+  --color-bg: #0F172A;
+  --color-surface: #1a2540;
+  --color-surface-hover: #243b53;
+  --color-border: #243b53;
+  --color-text-primary: #f0f4f8;
+  --color-text-secondary: #9fb3c8;
+  --color-text-muted: #627d98;
+  --color-accent: #D4A843;
+  --color-accent-hover: #e9c36e;
+  --color-accent-dim: rgba(212, 168, 67, 0.15);
+
+  font-family: 'DM Sans', system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer base {
+  body {
+    @apply bg-navy-950 text-navy-50 antialiased;
+  }
+
+  * {
+    @apply border-navy-800;
+  }
+}
+
+@layer components {
+  .sidebar-nav-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-navy-300 transition-all duration-200 text-sm font-medium;
+  }
+
+  .sidebar-nav-item:hover {
+    @apply bg-navy-800/60 text-gold-300;
+  }
+
+  .sidebar-nav-item.active {
+    @apply bg-gold-400/10 text-gold-400 border-l-2 border-gold-400;
+  }
+
+  .card {
+    @apply bg-navy-900/80 border border-navy-800 rounded-xl;
+  }
+
+  .card-hover {
+    @apply card hover:border-navy-700 hover:bg-navy-900 transition-all duration-200;
+  }
+
+  .btn-primary {
+    @apply bg-gold-400 hover:bg-gold-300 text-navy-950 font-semibold px-4 py-2 rounded-lg transition-all duration-200 inline-flex items-center gap-2 text-sm;
+  }
+
+  .btn-secondary {
+    @apply bg-navy-800 hover:bg-navy-700 text-navy-100 font-medium px-4 py-2 rounded-lg transition-all duration-200 inline-flex items-center gap-2 text-sm border border-navy-700;
+  }
+
+  .btn-ghost {
+    @apply text-navy-300 hover:text-gold-400 hover:bg-navy-800/50 font-medium px-3 py-1.5 rounded-lg transition-all duration-200 inline-flex items-center gap-2 text-sm;
+  }
+
+  .input-field {
+    @apply bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm text-navy-50 placeholder-navy-500 focus:outline-none focus:border-gold-400/50 focus:ring-1 focus:ring-gold-400/30 transition-all duration-200;
+  }
+
+  .breadcrumb-separator {
+    @apply text-navy-600 mx-2;
+  }
+}
+
+@layer utilities {
+  .text-gradient-gold {
+    @apply bg-gradient-to-r from-gold-300 via-gold-400 to-gold-500 bg-clip-text text-transparent;
+  }
+
+  .shadow-gold {
+    box-shadow: 0 0 20px rgba(212, 168, 67, 0.15);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--navy-700) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--navy-700);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: var(--navy-600);
+  }
+}
